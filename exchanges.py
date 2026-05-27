@@ -98,13 +98,21 @@ async def binance_perp() -> Set[str]:
 
 # ── OKX ───────────────────────────────────────────────────────────────────────
 
+def _okx_base(inst: dict) -> str:
+    """Extract base symbol from OKX instrument; fallback to parsing instId."""
+    sym = inst.get("baseCcy") or inst.get("instId", "").split("-")[0]
+    return sym.upper() if sym else ""
+
+
 async def okx_spot() -> Set[str]:
     data = await _get(
         "https://www.okx.com/api/v5/public/instruments?instType=SPOT", "okx_spot"
     )
     if not data or data.get("code") != "0":
         return set()
-    return {inst["baseCcy"].upper() for inst in data.get("data", [])}
+    tokens = {_okx_base(inst) for inst in data.get("data", [])}
+    tokens.discard("")
+    return tokens
 
 
 async def okx_perp() -> Set[str]:
@@ -113,11 +121,16 @@ async def okx_perp() -> Set[str]:
     )
     if not data or data.get("code") != "0":
         return set()
-    return {
-        inst["baseCcy"].upper()
-        for inst in data.get("data", [])
-        if inst.get("settleCcy", "").upper() in {"USDT", "USDC"}
-    }
+    tokens: Set[str] = set()
+    for inst in data.get("data", []):
+        settle = inst.get("settleCcy", "").upper()
+        inst_id = inst.get("instId", "").upper()
+        # Linear perps settled in USDT/USDC; instId fallback: "BTC-USDT-SWAP"
+        if settle in {"USDT", "USDC"} or "-USDT-" in inst_id or "-USDC-" in inst_id:
+            sym = _okx_base(inst)
+            if sym:
+                tokens.add(sym)
+    return tokens
 
 
 # ── BITGET ────────────────────────────────────────────────────────────────────
