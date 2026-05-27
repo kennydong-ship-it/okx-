@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OKX Token Sourcing Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --bg:#0a0e17; --card:#111827; --border:#1f2937; --muted:#6b7280; }
+  body { background:var(--bg); color:#e5e7eb; font-family:'Inter',system-ui,sans-serif; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; }
+  .badge { display:inline-flex;align-items:center;padding:2px 7px;border-radius:9999px;font-size:10px;font-weight:700;white-space:nowrap; }
+  .b-spot{background:#1a3a5c;color:#60a5fa} .b-perp{background:#2a1f4a;color:#a78bfa}
+  .b-kr{background:#1a3a2a;color:#4ade80} .b-us{background:#3a1a1a;color:#f87171}
+  .b-eu{background:#2a2a1a;color:#fbbf24} .b-gl{background:#1a2a3a;color:#67e8f9}
+  .cat{background:#1f2d3d;color:#93c5fd;font-size:10px;padding:1px 5px;border-radius:4px;white-space:nowrap}
+  .vbar{height:3px;border-radius:2px;background:#1677ff;transition:width .3s}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1.5px solid var(--border);font-size:12.5px;font-weight:500;transition:all .15s;user-select:none}
+  .chip.on{border-color:#1677ff;background:#1677ff22;color:#60a5fa} .chip.off{color:var(--muted)}
+  .chip:hover{border-color:#60a5fa}
+  .ptbtn{padding:4px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;border:1.5px solid transparent}
+  .ptbtn.on{background:#1677ff;color:#fff;border-color:#1677ff} .ptbtn.off{color:var(--muted);border-color:var(--border)}
+  table{border-collapse:collapse;width:100%}
+  thead th{position:sticky;top:0;background:#0f172a;z-index:10;padding:9px 11px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;cursor:pointer}
+  thead th:hover{color:#e5e7eb}
+  tbody tr{border-top:1px solid var(--border)} tbody tr:hover{background:#ffffff07}
+  tbody td{padding:9px 11px;vertical-align:middle;font-size:12.5px}
+  .green{color:#4ade80} .red{color:#f87171} .num{font-variant-numeric:tabular-nums}
+  .spin{animation:spin .7s linear infinite} @keyframes spin{to{transform:rotate(360deg)}}
+  ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:#374151;border-radius:3px}
+  #toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:8px;font-size:12.5px;z-index:9999;display:none;background:#1e293b;border:1px solid #334155}
+  .exstatus{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 7px;border-radius:5px}
+  .exstatus.ok{background:#0d2f1a;color:#4ade80} .exstatus.err{background:#2f0d0d;color:#f87171} .exstatus.loading{background:#1a1f2f;color:#94a3b8}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="flex items-center justify-between px-5 py-3 border-b" style="border-color:var(--border);background:#0d1420;">
+  <div class="flex items-center gap-3">
+    <svg width="26" height="26" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1677ff"/><text x="4" y="23" font-size="16" font-weight="900" fill="white" font-family="Arial">OK</text></svg>
+    <span class="text-white font-bold text-base tracking-tight">Token Sourcing Dashboard</span>
+    <span class="text-xs px-2 py-0.5 rounded" style="background:#1e3a5f;color:#60a5fa;">INTERNAL</span>
+  </div>
+  <div class="flex items-center gap-4 text-xs" style="color:var(--muted)">
+    <span id="lastUpdate"></span>
+    <span id="countdown"></span>
+  </div>
+</header>
+
+<!-- CONTROLS -->
+<div class="px-5 pt-4 pb-3 border-b" style="border-color:var(--border);background:#0d1420;">
+  <div class="flex flex-wrap items-start gap-5">
+
+    <div>
+      <div class="text-xs font-semibold mb-2" style="color:var(--muted)">TARGET EXCHANGES <span style="color:#818cf8;">(listed here but NOT on OKX)</span></div>
+      <div id="chips" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <div>
+      <div class="text-xs font-semibold mb-2" style="color:var(--muted)">PRODUCT TYPE</div>
+      <div class="flex gap-2">
+        <button class="ptbtn on" data-pt="spot" onclick="setPT(this)">Spot</button>
+        <button class="ptbtn off" data-pt="perp" onclick="setPT(this)">Perps</button>
+        <button class="ptbtn off" data-pt="both" onclick="setPT(this)">Both</button>
+      </div>
+    </div>
+
+    <div class="flex items-end gap-2">
+      <button id="runBtn" onclick="run()"
+        class="px-4 py-2 rounded-lg font-bold text-sm text-white flex items-center gap-2"
+        style="background:#1677ff">
+        <svg id="runIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/></svg>
+        Refresh
+      </button>
+      <button onclick="loadDemo()" class="px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-1"
+        style="background:#1e293b;border:1px solid #f59e0b;color:#f59e0b" title="Load sample data">
+        ⚡ Demo
+      </button>
+    </div>
+  </div>
+
+  <!-- Exchange status row -->
+  <div id="exStatusRow" class="flex flex-wrap gap-2 mt-3" style="display:none!important"></div>
+
+  <!-- Filters -->
+  <div class="flex flex-wrap items-center gap-3 mt-3">
+    <input id="q" oninput="filter()" placeholder="搜索代币…"
+      class="text-sm px-3 py-1.5 rounded-lg w-44 outline-none"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb"/>
+    <input id="minVol" oninput="filter()" placeholder="最小24h交易量 $"
+      class="text-sm px-3 py-1.5 rounded-lg w-44 outline-none"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb"/>
+    <select id="catSel" onchange="filter()"
+      class="text-sm px-3 py-1.5 rounded-lg outline-none"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb">
+      <option value="">所有赛道</option>
+    </select>
+    <span id="cnt" class="text-xs" style="color:var(--muted)"></span>
+  </div>
+</div>
+
+<!-- STATS -->
+<div id="stats" class="hidden flex gap-3 px-5 py-3"></div>
+
+<!-- TABLE -->
+<div class="px-5 pb-10">
+  <div class="card mt-3 overflow-x-auto" style="max-height:72vh;overflow-y:auto">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th onclick="sort('name')" class="text-left">代币</th>
+          <th class="text-left">上架交易所</th>
+          <th class="text-left">类型</th>
+          <th onclick="sort('vol')" class="text-right">24h 交易量 ↕</th>
+          <th onclick="sort('mcap')" class="text-right">市值 ↕</th>
+          <th onclick="sort('chg')" class="text-right">24h涨跌 ↕</th>
+          <th class="text-left">赛道</th>
+          <th class="text-left">来源</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="9" class="text-center py-16" style="color:var(--muted)">选择交易所后点击 <strong>Refresh</strong> 加载，或点击 <strong>⚡ Demo</strong> 查看示例。</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════════
+const EX_DEF = [
+  {id:'upbit',   name:'Upbit',    region:'KR', s:true,  p:false},
+  {id:'bithumb', name:'Bithumb',  region:'KR', s:true,  p:false},
+  {id:'binance', name:'Binance',  region:'GL', s:true,  p:true},
+  {id:'bitget',  name:'Bitget',   region:'GL', s:true,  p:true},
+  {id:'bybit',   name:'Bybit',    region:'GL', s:true,  p:true},
+  {id:'coinbase',name:'Coinbase', region:'US', s:true,  p:false},
+  {id:'kraken',  name:'Kraken',   region:'US', s:true,  p:true},
+  {id:'revolut', name:'Revolut',  region:'EU', s:true,  p:false, note:'静态列表'},
+  {id:'bitvavo', name:'Bitvavo',  region:'EU', s:true,  p:false},
+  {id:'mexc',    name:'MEXC',     region:'GL', s:true,  p:true},
+];
+const RMAP = {KR:'b-kr',US:'b-us',EU:'b-eu',GL:'b-gl'};
+const STABLE = new Set(['USDT','USDC','BUSD','DAI','TUSD','USDP','USDD','FDUSD','GUSD','LUSD','FRAX','MIM','SUSD','HUSD','UST','USTC','PYUSD','CRVUSD','GYEN','EURS','AGEUR','USDK','DOLA','OUSD','CEUR','CUSD','USDX','EUR','USD','GBP','SGD','AUD','CAD','JPY','KRW','WBTC','WETH','WBNB','WMATIC','WAVAX']);
+const REVOLUT_STATIC = ['BTC','ETH','XRP','LTC','BCH','XLM','EOS','TRX','LINK','XTZ','SOL','ADA','DOT','UNI','MATIC','DOGE','SHIB','AVAX','ATOM','ALGO','NEAR','ICP','APT','ARB','OP','SUI','PEPE','FLOKI','BONK','WLD','PYTH','JTO','STRK','ORDI','SEI','BLUR','HBAR','QNT','SAND','MANA','AXS','ENJ','CHZ','GALA','IMX','RNDR','FET','OCEAN','AGIX','CRV','AAVE','SNX','MKR','COMP','YFI','SUSHI','1INCH','FLOW','THETA','VET','ZIL','KAVA','CELO','DASH','ZEC','XMR','ETC','FIL','LDO','RPL','NOT','TON','INJ','OSMO','TIA','MEME','NEIRO','EIGEN','HMSTR','CATI','DOGS'];
+
+// ════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════
+let sel = new Set(['upbit','bithumb','binance']);
+let pt = 'spot';
+let rows = [], filtered = [], sortKey = 'vol', sortAsc = false;
+let maxVol = 1, timer = null;
+
+// ════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════
+function init() {
+  const c = document.getElementById('chips');
+  EX_DEF.forEach(ex => {
+    const d = document.createElement('div');
+    d.className = 'chip ' + (sel.has(ex.id) ? 'on' : 'off');
+    d.dataset.id = ex.id;
+    const caps = (ex.s ? 'S' : '') + (ex.p ? '/P' : '');
+    d.innerHTML = `<span class="badge ${RMAP[ex.region]||'b-gl'}" style="font-size:9px;padding:1px 4px">${ex.region==='GL'?'Global':ex.region}</span>${ex.name}<span style="font-size:10px;opacity:.6">[${caps}]</span>${ex.note?'<span title="'+ex.note+'">⚠️</span>':''}`;
+    d.onclick = () => { sel.has(ex.id) ? sel.delete(ex.id) : sel.add(ex.id); renderChips(); };
+    c.appendChild(d);
+  });
+}
+function renderChips() {
+  document.querySelectorAll('#chips .chip').forEach(ch => {
+    const on = sel.has(ch.dataset.id);
+    ch.className = 'chip ' + (on ? 'on' : 'off');
+  });
+}
+function setPT(btn) {
+  document.querySelectorAll('.ptbtn').forEach(b => b.className = b.className.replace('on','off'));
+  btn.className = btn.className.replace('off','on');
+  pt = btn.dataset.pt;
+}
+
+// ════════════════════════════════════════════════════════════════
+// EXCHANGE FETCHERS
+// ════════════════════════════════════════════════════════════════
+const BQUOTE = new Set(['USDT','USDC','BUSD','BTC','ETH','BNB']);
+const KQUOTE = new Set(['ZUSD','ZEUR','XXBT','ZGBP','USDT','USDC']);
+const KMAP   = {XXBT:'BTC',XBT:'BTC',XETH:'ETH',XXRP:'XRP',XXLM:'XLM',XLTC:'LTC',XMLN:'MLN',XREP:'REP',XXMR:'XMR',XZEC:'ZEC',XETC:'ETC',XXDG:'DOGE'};
+const normK = s => KMAP[s] || (s.length===4 && 'XZ'.includes(s[0]) ? s.slice(1) : s.replace(/\.[SP]$/,''));
+
+async function gj(url) {
+  const r = await fetch(url, {headers:{'Accept':'application/json'}});
+  if (!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+async function fetchUpbitSpot() {
+  const d = await gj('https://api.upbit.com/v1/market/all');
+  return new Set(d.filter(m=>m.market.startsWith('KRW-')).map(m=>m.market.split('-')[1]));
+}
+async function fetchBithumbSpot() {
+  const d = await gj('https://api.bithumb.com/public/ticker/ALL_KRW');
+  if (d.status !== '0000') throw new Error('bad status');
+  return new Set(Object.keys(d.data).filter(k=>k!=='date'));
+}
+async function fetchBinanceSpot() {
+  const d = await gj('https://api.binance.com/api/v3/exchangeInfo');
+  return new Set(d.symbols.filter(s=>s.status==='TRADING'&&BQUOTE.has(s.quoteAsset)).map(s=>s.baseAsset));
+}
+async function fetchBinancePerp() {
+  const d = await gj('https://fapi.binance.com/fapi/v1/exchangeInfo');
+  return new Set(d.symbols.filter(s=>s.contractType==='PERPETUAL'&&s.status==='TRADING').map(s=>s.baseAsset));
+}
+async function fetchOKXSpot() {
+  const d = await gj('https://www.okx.com/api/v5/public/instruments?instType=SPOT');
+  if (d.code !== '0') throw new Error('OKX error');
+  return new Set(d.data.map(i=>i.baseCcy));
+}
+async function fetchOKXPerp() {
+  const d = await gj('https://www.okx.com/api/v5/public/instruments?instType=SWAP');
+  if (d.code !== '0') throw new Error('OKX error');
+  return new Set(d.data.filter(i=>['USDT','USDC'].includes(i.settleCcy)).map(i=>i.baseCcy));
+}
+async function fetchBitgetSpot() {
+  const d = await gj('https://api.bitget.com/api/v2/spot/public/symbols');
+  if (d.code !== '00000') throw new Error('Bitget error');
+  return new Set(d.data.map(s=>s.baseCoin));
+}
+async function fetchBitgetPerp() {
+  const tokens = new Set();
+  for (const pt of ['USDT-FUTURES','USDC-FUTURES']) {
+    try {
+      const d = await gj(`https://api.bitget.com/api/v2/mix/market/tickers?productType=${pt}`);
+      if (d.code==='00000') d.data.forEach(t=>{let s=t.symbol.replace(/USDT|USDC|PERP/g,'');if(s)tokens.add(s);});
+    } catch{}
+  }
+  return tokens;
+}
+async function fetchBybitSpot() {
+  const tokens = new Set(); let cursor='';
+  for(let i=0;i<5;i++){
+    const url='https://api.bybit.com/v5/market/instruments-info?category=spot&limit=1000'+(cursor?'&cursor='+cursor:'');
+    const d = await gj(url); if(d.retCode!==0) break;
+    d.result.list.forEach(x=>tokens.add(x.baseCoin));
+    cursor=d.result.nextPageCursor||''; if(!cursor) break;
+  }
+  return tokens;
+}
+async function fetchBybitPerp() {
+  const tokens = new Set(); let cursor='';
+  for(let i=0;i<5;i++){
+    const url='https://api.bybit.com/v5/market/instruments-info?category=linear&limit=1000'+(cursor?'&cursor='+cursor:'');
+    const d = await gj(url); if(d.retCode!==0) break;
+    d.result.list.filter(x=>['USDT','USDC'].includes(x.quoteCoin)).forEach(x=>tokens.add(x.baseCoin));
+    cursor=d.result.nextPageCursor||''; if(!cursor) break;
+  }
+  return tokens;
+}
+async function fetchCoinbaseSpot() {
+  const d = await gj('https://api.exchange.coinbase.com/products');
+  return new Set(d.filter(p=>p.status==='online'&&['USD','USDT','USDC','EUR','GBP','BTC','ETH'].includes(p.quote_currency)).map(p=>p.base_currency));
+}
+async function fetchKrakenSpot() {
+  const d = await gj('https://api.kraken.com/0/public/AssetPairs');
+  if(d.error?.length) throw new Error(d.error[0]);
+  const tokens=new Set();
+  Object.values(d.result).forEach(p=>{
+    if(p.altname?.includes('.d')) return;
+    if(KQUOTE.has(p.quote)){const s=normK(p.base||'');if(s&&!s.startsWith('Z'))tokens.add(s.toUpperCase());}
+  });
+  return tokens;
+}
+async function fetchKrakenPerp() {
+  const d = await gj('https://futures.kraken.com/derivatives/api/v3/instruments');
+  const tokens=new Set();
+  (d.instruments||[]).forEach(i=>{
+    const s=i.symbol||''; if(!s.includes('PF_')&&!s.includes('PI_')) return;
+    let base=s.replace('PF_','').replace('PI_','');
+    for(const q of ['USDT','USD','EUR','XBT','GBP']){if(base.endsWith(q)){base=base.slice(0,-q.length);break;}}
+    base=normK(base); if(base) tokens.add(base.toUpperCase());
+  });
+  return tokens;
+}
+async function fetchRevolutSpot() { return new Set(REVOLUT_STATIC); }
+async function fetchBitvavoSpot() {
+  const d = await gj('https://api.bitvavo.com/v2/markets');
+  return new Set(d.filter(m=>m.status==='trading'&&m.market.includes('-')).map(m=>m.market.split('-')[0]));
+}
+async function fetchMEXCSpot() {
+  const d = await gj('https://api.mexc.com/api/v3/exchangeInfo');
+  return new Set(d.symbols.filter(s=>s.status==='ENABLED'&&['USDT','USDC','BTC','ETH'].includes(s.quoteAsset)).map(s=>s.baseAsset));
+}
+async function fetchMEXCPerp() {
+  const d = await gj('https://contract.mexc.com/api/v1/contract/detail');
+  if(d.code!==200) throw new Error('MEXC perp error');
+  return new Set(d.data.filter(c=>c.symbol.includes('_USDT')||c.symbol.includes('_USDC')).map(c=>c.symbol.split('_')[0]));
+}
+
+const EX_FN = {
+  upbit:   {spot:fetchUpbitSpot,   perp:null},
+  bithumb: {spot:fetchBithumbSpot, perp:null},
+  binance: {spot:fetchBinanceSpot, perp:fetchBinancePerp},
+  bitget:  {spot:fetchBitgetSpot,  perp:fetchBitgetPerp},
+  bybit:   {spot:fetchBybitSpot,   perp:fetchBybitPerp},
+  coinbase:{spot:fetchCoinbaseSpot,perp:null},
+  kraken:  {spot:fetchKrakenSpot,  perp:fetchKrakenPerp},
+  revolut: {spot:fetchRevolutSpot, perp:null},
+  bitvavo: {spot:fetchBitvavoSpot, perp:null},
+  mexc:    {spot:fetchMEXCSpot,    perp:fetchMEXCPerp},
+};
+
+// ════════════════════════════════════════════════════════════════
+// COINGECKO
+// ════════════════════════════════════════════════════════════════
+const CG = 'https://api.coingecko.com/api/v3';
+let cgListCache = null, cgListTs = 0;
+const PREF = {BTC:'bitcoin',ETH:'ethereum',BNB:'binancecoin',SOL:'solana',XRP:'ripple',ADA:'cardano',AVAX:'avalanche-2',DOT:'polkadot',DOGE:'dogecoin',LINK:'chainlink',MATIC:'matic-network',UNI:'uniswap',ATOM:'cosmos',LTC:'litecoin',BCH:'bitcoin-cash',NEAR:'near',APT:'aptos',OP:'optimism',ARB:'arbitrum',SUI:'sui',TON:'the-open-network',INJ:'injective-protocol',SEI:'sei-network',TIA:'celestia',PEPE:'pepe',WLD:'worldcoin-wld',SHIB:'shiba-inu',BONK:'bonk',FLOKI:'floki',NOT:'notcoin',ORDI:'ordinals',HBAR:'hedera-hashgraph',BOME:'book-of-meme',NEIRO:'neiro-on-eth',EIGEN:'eigenlayer',SCR:'scroll',CATI:'catizen',DOGS:'dogs-2',HMSTR:'hamster-kombat',BLUR:'blur',ORCA:'orca',TNSR:'tensor',AEVO:'aevo-exchange',ZETA:'zetachain',ALT:'altlayer',MANTA:'manta-network',ACE:'fusionist',STEEM:'steem',XEC:'ecash',POLYX:'polymesh',MVL:'mass-vehicle-ledger',BORA:'bora',CTC:'creditcoin-2',WAXP:'wax',POLS:'polkastarter'};
+
+async function cgList() {
+  const now = Date.now();
+  if (cgListCache && now - cgListTs < 3600000) return cgListCache;
+  const d = await gj(CG+'/coins/list');
+  const m = {};
+  d.forEach(c => { const s = c.symbol.toUpperCase(); if(!m[s]) m[s]=[]; m[s].push(c.id); });
+  cgListCache = m; cgListTs = now;
+  return m;
+}
+function bestId(sym, ids) {
+  if (PREF[sym] && ids.includes(PREF[sym])) return PREF[sym];
+  return ids[0];
+}
+async function cgMarkets(ids) {
+  const out = {};
+  for (let i=0; i<ids.length; i+=200) {
+    const batch = ids.slice(i,i+200);
+    try {
+      const d = await gj(CG+'/coins/markets?vs_currency=usd&ids='+batch.join(',')+'&per_page=200&sparkline=false&price_change_percentage=24h');
+      d.forEach(c => { out[c.id]={vol:c.total_volume||0,mcap:c.market_cap||0,price:c.current_price||0,chg:c.price_change_percentage_24h||0,name:c.name,img:c.image}; });
+    } catch(e) { console.warn('CG markets batch error',e); }
+    if (i+200 < ids.length) await sleep(1200);
+  }
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAIN RUN
+// ════════════════════════════════════════════════════════════════
+async function run() {
+  if (sel.size === 0) { toast('请至少选择一个交易所','warn'); return; }
+  const btn = document.getElementById('runBtn');
+  const ico = document.getElementById('runIcon');
+  btn.disabled = true; ico.classList.add('spin');
+
+  showExStatus('loading');
+  setPlaceholder('正在拉取交易所数据…');
+
+  const pts = pt==='both' ? ['spot','perp'] : [pt];
+
+  // 1. Fetch OKX listings
+  let okx = new Set();
+  for (const t of pts) {
+    try { okx = new Set([...okx, ...(t==='spot' ? await fetchOKXSpot() : await fetchOKXPerp())]); }
+    catch(e) { console.warn('OKX fetch error', e); }
+  }
+
+  // 2. Fetch selected exchanges in parallel
+  const tasks = [];
+  for (const exId of sel) {
+    for (const t of pts) {
+      const fn = EX_FN[exId]?.[t];
+      if (fn) tasks.push({exId, t, fn});
+    }
+  }
+  const results = await Promise.allSettled(tasks.map(tk => tk.fn()));
+
+  // 3. Build token map
+  const tokenMap = {}; // sym -> {exchanges, types}
+  const exOk = {}, exErr = {};
+  results.forEach((res, i) => {
+    const {exId, t} = tasks[i];
+    if (res.status === 'fulfilled') {
+      exOk[exId] = true;
+      res.value.forEach(sym => {
+        const s = sym.toUpperCase();
+        if (STABLE.has(s)) return;
+        if (!tokenMap[s]) tokenMap[s] = {exchanges:new Set(), types:new Set()};
+        tokenMap[s].exchanges.add(exId);
+        tokenMap[s].types.add(t);
+      });
+    } else {
+      exErr[exId] = res.reason?.message || 'error';
+      console.warn(`${exId} ${t} failed:`, res.reason);
+    }
+  });
+
+  // 4. Filter out OKX tokens
+  const missing = {};
+  Object.entries(tokenMap).forEach(([sym, info]) => {
+    if (!okx.has(sym)) missing[sym] = {exchanges:[...info.exchanges], types:[...info.types]};
+  });
+
+  updateExStatus(exOk, exErr);
+
+  if (Object.keys(missing).length === 0) {
+    setPlaceholder('未找到符合条件的代币（OKX 已覆盖所选交易所的全部标的）');
+    btn.disabled=false; ico.classList.remove('spin');
+    return;
+  }
+
+  // 5. CoinGecko enrichment
+  setPlaceholder('正在从 CoinGecko 获取交易量和行情数据…');
+  let symMap = {};
+  try { symMap = await cgList(); } catch(e) { console.warn('CG list error',e); }
+  const sym2id = {};
+  Object.keys(missing).forEach(sym => {
+    const ids = symMap[sym]; if(ids?.length) sym2id[sym] = bestId(sym,ids);
+  });
+  const mdata = await cgMarkets(Object.values(sym2id));
+
+  // 6. Build rows
+  rows = Object.entries(missing).map(([sym, info]) => {
+    const cid = sym2id[sym];
+    const md = cid ? mdata[cid] : null;
+    return { sym, name: md?.name||sym, img: md?.img||'', exchanges: info.exchanges, types: info.types,
+             vol: md?.vol||0, mcap: md?.mcap||0, price: md?.price||0, chg: md?.chg||0,
+             cid, cats: [] };
+  });
+
+  maxVol = Math.max(1, ...rows.map(r=>r.vol));
+  buildCatFilter();
+  filter();
+  updateStats();
+  document.getElementById('lastUpdate').textContent = '更新于 ' + new Date().toLocaleTimeString();
+  startCountdown();
+  btn.disabled=false; ico.classList.remove('spin');
+}
+
+// ════════════════════════════════════════════════════════════════
+// DEMO DATA
+// ════════════════════════════════════════════════════════════════
+function loadDemo() {
+  rows = [
+    {sym:'BOME',name:'Book of Meme',img:'https://assets.coingecko.com/coins/images/36347/small/bome.png',exchanges:['binance','bybit','mexc'],types:['spot','perp'],vol:487000000,mcap:820000000,price:0.0087,chg:12.4,cid:'book-of-meme',cats:['Meme','Solana Ecosystem']},
+    {sym:'NOT',name:'Notcoin',img:'https://assets.coingecko.com/coins/images/36135/small/notcoin.png',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:423000000,mcap:1650000000,price:0.0072,chg:8.9,cid:'notcoin',cats:['TON Ecosystem','Gaming','Meme']},
+    {sym:'HBAR',name:'Hedera',img:'https://assets.coingecko.com/coins/images/3688/small/hbar.png',exchanges:['upbit','bithumb','binance'],types:['spot'],vol:312450000,mcap:8200000000,price:0.082,chg:4.32,cid:'hedera-hashgraph',cats:['Layer 1 (L1)','Enterprise Blockchain']},
+    {sym:'NEIRO',name:'First Neiro On Ethereum',img:'https://assets.coingecko.com/coins/images/39392/small/neiro.png',exchanges:['binance','bybit','mexc'],types:['spot','perp'],vol:289000000,mcap:610000000,price:0.00062,chg:15.3,cid:'neiro-on-eth',cats:['Meme','Ethereum Ecosystem']},
+    {sym:'EIGEN',name:'EigenLayer',img:'https://assets.coingecko.com/coins/images/33119/small/eigen.png',exchanges:['binance','coinbase','kraken','bybit'],types:['spot','perp'],vol:198000000,mcap:2100000000,price:3.21,chg:-2.3,cid:'eigenlayer',cats:['Restaking','DeFi','Ethereum Ecosystem']},
+    {sym:'XEC',name:'eCash',img:'https://assets.coingecko.com/coins/images/16646/small/Logo_200x200.png',exchanges:['upbit','bithumb'],types:['spot'],vol:187300000,mcap:950000000,price:0.0000456,chg:-1.8,cid:'ecash',cats:['Cryptocurrency']},
+    {sym:'SCR',name:'Scroll',img:'https://assets.coingecko.com/coins/images/34963/small/scroll.png',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:176000000,mcap:890000000,price:0.89,chg:-4.1,cid:'scroll',cats:['Layer 2 (L2)','Zero Knowledge (ZK)','Ethereum Ecosystem']},
+    {sym:'CATI',name:'Catizen',img:'https://assets.coingecko.com/coins/images/39273/small/catizen.png',exchanges:['binance','bybit','bitget'],types:['spot','perp'],vol:154000000,mcap:560000000,price:0.37,chg:7.6,cid:'catizen',cats:['TON Ecosystem','Gaming']},
+    {sym:'POLYX',name:'Polymesh',img:'https://assets.coingecko.com/coins/images/23496/small/0_0.png',exchanges:['upbit','bithumb','kraken'],types:['spot'],vol:145600000,mcap:380000000,price:0.31,chg:2.15,cid:'polymesh',cats:['Security Tokens','Regulated Blockchain']},
+    {sym:'DOGS',name:'Dogs',img:'https://assets.coingecko.com/coins/images/39332/small/dogs.png',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:132000000,mcap:480000000,price:0.00048,chg:3.2,cid:'dogs-2',cats:['TON Ecosystem','Meme']},
+    {sym:'HMSTR',name:'Hamster Kombat',img:'https://assets.coingecko.com/coins/images/39102/small/hamster-removebg-preview.png',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:118000000,mcap:720000000,price:0.0048,chg:-1.5,cid:'hamster-kombat',cats:['TON Ecosystem','Gaming']},
+    {sym:'STEEM',name:'Steem',img:'https://assets.coingecko.com/coins/images/585/small/steem.png',exchanges:['upbit','bithumb','binance'],types:['spot'],vol:98700000,mcap:220000000,price:0.24,chg:-3.4,cid:'steem',cats:['Content Creation','Social']},
+    {sym:'BLUR',name:'Blur',img:'https://assets.coingecko.com/coins/images/28453/small/blur.png',exchanges:['coinbase','kraken','bybit','bitget'],types:['spot','perp'],vol:95000000,mcap:680000000,price:0.21,chg:-0.8,cid:'blur',cats:['NFT','Marketplace']},
+    {sym:'ORCA',name:'Orca',img:'https://assets.coingecko.com/coins/images/17547/small/Orca_Logo.png',exchanges:['coinbase','kraken','bybit'],types:['spot','perp'],vol:52100000,mcap:340000000,price:3.41,chg:5.8,cid:'orca',cats:['DEX','Solana Ecosystem']},
+    {sym:'CTC',name:'Creditcoin',img:'https://assets.coingecko.com/coins/images/16559/small/creditcoin.jpeg',exchanges:['upbit','bithumb','bybit'],types:['spot','perp'],vol:65400000,mcap:260000000,price:0.88,chg:-0.9,cid:'creditcoin-2',cats:['DeFi','Lending/Borrowing']},
+    {sym:'WAXP',name:'WAX',img:'https://assets.coingecko.com/coins/images/1372/small/WAX_Coin_Tickers_P_512px.png',exchanges:['upbit','binance','kraken'],types:['spot'],vol:58900000,mcap:430000000,price:0.054,chg:3.1,cid:'wax',cats:['Gaming','NFT','Metaverse']},
+    {sym:'MVL',name:'MVL',img:'https://assets.coingecko.com/coins/images/5164/small/MVL.png',exchanges:['upbit','bithumb'],types:['spot'],vol:87200000,mcap:110000000,price:0.0067,chg:6.7,cid:'mass-vehicle-ledger',cats:['Transportation','Real World Assets']},
+    {sym:'BORA',name:'BORA',img:'https://assets.coingecko.com/coins/images/7444/small/BORA.png',exchanges:['upbit','bithumb'],types:['spot'],vol:76500000,mcap:195000000,price:0.21,chg:1.2,cid:'bora',cats:['Gaming','NFT']},
+    {sym:'TNSR',name:'Tensor',img:'https://assets.coingecko.com/coins/images/35399/small/tensor.png',exchanges:['coinbase','bybit','bitget','mexc'],types:['spot','perp'],vol:87000000,mcap:310000000,price:0.52,chg:9.1,cid:'tensor',cats:['NFT','Marketplace','Solana Ecosystem']},
+    {sym:'AEVO',name:'Aevo',img:'https://assets.coingecko.com/coins/images/34617/small/aevo.png',exchanges:['binance','coinbase','bybit','bitget'],types:['spot','perp'],vol:76500000,mcap:290000000,price:0.82,chg:-3.7,cid:'aevo-exchange',cats:['DEX','Options','DeFi']},
+    {sym:'ZETA',name:'ZetaChain',img:'https://assets.coingecko.com/coins/images/26718/small/zetachain.png',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:68000000,mcap:440000000,price:0.64,chg:2.4,cid:'zetachain',cats:['Layer 1 (L1)','Cross-Chain']},
+    {sym:'ALT',name:'AltLayer',img:'https://assets.coingecko.com/coins/images/34601/small/altlayer.jpeg',exchanges:['binance','bybit','bitget','mexc'],types:['spot','perp'],vol:62000000,mcap:380000000,price:0.21,chg:-5.2,cid:'altlayer',cats:['Layer 2 (L2)','Restaking']},
+    {sym:'MANTA',name:'Manta Network',img:'https://assets.coingecko.com/coins/images/34289/small/manta.png',exchanges:['binance','bybit','kraken','mexc'],types:['spot','perp'],vol:58000000,mcap:490000000,price:0.94,chg:1.8,cid:'manta-network',cats:['Layer 2 (L2)','Zero Knowledge','Privacy']},
+    {sym:'ACE',name:'Fusionist',img:'https://assets.coingecko.com/coins/images/33952/small/ace.png',exchanges:['binance','bybit','bitget'],types:['spot','perp'],vol:43000000,mcap:210000000,price:2.14,chg:4.6,cid:'fusionist',cats:['Gaming','Metaverse','NFT']},
+    {sym:'GFI',name:'Goldfinch',img:'https://assets.coingecko.com/coins/images/19040/small/GFI_logo.png',exchanges:['coinbase','kraken'],types:['spot'],vol:12300000,mcap:87000000,price:0.94,chg:-0.4,cid:'goldfinch',cats:['DeFi','Lending/Borrowing','Real World Assets']},
+  ];
+  rows.sort((a,b)=>b.vol-a.vol);
+  maxVol = Math.max(1,...rows.map(r=>r.vol));
+  buildCatFilter();
+  filter();
+  updateStats();
+  document.getElementById('lastUpdate').textContent = 'Demo 示例数据';
+  toast('⚡ 已加载示例数据（非实时）','info');
+}
+
+// ════════════════════════════════════════════════════════════════
+// FILTER / SORT / RENDER
+// ════════════════════════════════════════════════════════════════
+function filter() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const mv = parseFloat(document.getElementById('minVol').value)||0;
+  const cat = document.getElementById('catSel').value;
+  filtered = rows.filter(r => {
+    if(q && !r.sym.toLowerCase().includes(q) && !r.name.toLowerCase().includes(q)) return false;
+    if(mv && r.vol < mv) return false;
+    if(cat && !r.cats.includes(cat)) return false;
+    return true;
+  });
+  doSort(); renderTable();
+  document.getElementById('cnt').textContent = filtered.length + ' 个代币';
+}
+function sort(k) { if(sortKey===k) sortAsc=!sortAsc; else {sortKey=k;sortAsc=false;} filter(); }
+function doSort() {
+  filtered.sort((a,b)=>{
+    let va=a[sortKey]??0, vb=b[sortKey]??0;
+    if(typeof va==='string'){va=va.toLowerCase();vb=vb.toLowerCase();}
+    return sortAsc?(va>vb?1:-1):(va<vb?1:-1);
+  });
+}
+function buildCatFilter() {
+  const cats = new Set(rows.flatMap(r=>r.cats));
+  const sel = document.getElementById('catSel');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">所有赛道</option>';
+  [...cats].sort().forEach(c => { const o=document.createElement('option');o.value=o.textContent=c;sel.appendChild(o); });
+  if(prev) sel.value=prev;
+}
+function renderTable() {
+  const tb = document.getElementById('tbody');
+  if(!filtered.length){
+    tb.innerHTML='<tr><td colspan="9" class="text-center py-16" style="color:var(--muted)">没有符合条件的代币</td></tr>';
+    return;
+  }
+  const exInfo = id => EX_DEF.find(e=>e.id===id);
+  tb.innerHTML = filtered.map((r,i)=>{
+    const pct = Math.round(r.vol/maxVol*100);
+    const chgClass = r.chg>=0?'green':'red';
+    const chgStr = (r.chg>=0?'+':'')+r.chg.toFixed(2)+'%';
+    const exBadges = r.exchanges.map(id=>{const e=exInfo(id)||{name:id,region:'GL'};return`<span class="badge ${RMAP[e.region]||'b-gl'}" style="font-size:9px">${e.name}</span>`;}).join(' ');
+    const typeBadges = r.types.map(t=>`<span class="badge b-${t}" style="font-size:9px">${t.toUpperCase()}</span>`).join(' ');
+    const catBadges = (r.cats||[]).slice(0,3).map(c=>`<span class="cat">${c}</span>`).join(' ');
+    const cgLink = r.cid?`<a href="https://www.coingecko.com/en/coins/${r.cid}" target="_blank" class="text-blue-400 underline text-xs">CoinGecko</a>`:'<span style="color:var(--muted)">—</span>';
+    return `<tr>
+      <td class="num" style="color:var(--muted)">${i+1}</td>
+      <td><div class="flex items-center gap-2">
+        ${r.img?`<img src="${r.img}" width="20" height="20" class="rounded-full" onerror="this.style.display='none'"/>`:'<div style="width:20px;height:20px;background:#1f2937;border-radius:50%"></div>'}
+        <div><div class="font-bold text-white">${r.sym}</div><div style="font-size:10.5px;color:var(--muted)">${r.name!==r.sym?r.name:''}</div></div>
+      </div></td>
+      <td><div class="flex flex-wrap gap-1">${exBadges}</div></td>
+      <td><div class="flex gap-1">${typeBadges}</div></td>
+      <td class="text-right"><div class="num font-medium">${fv(r.vol)}</div><div class="mt-0.5"><div class="vbar" style="width:${pct}%;margin-left:auto"></div></div></td>
+      <td class="text-right num">${fv(r.mcap)}</td>
+      <td class="text-right num ${chgClass}">${r.price?chgStr:'—'}</td>
+      <td><div class="flex flex-wrap gap-1">${catBadges||'<span style="color:var(--muted);font-size:11px">—</span>'}</div></td>
+      <td>${cgLink}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// STATS / STATUS
+// ════════════════════════════════════════════════════════════════
+function updateStats() {
+  const totalVol = rows.reduce((s,r)=>s+r.vol,0);
+  const s = document.getElementById('stats');
+  s.className='flex gap-3 px-5 py-3';
+  s.innerHTML=[
+    {label:'未在OKX上架代币',val:rows.length,c:'#f59e0b'},
+    {label:'有交易量数据',val:rows.filter(r=>r.vol>0).length,c:'#60a5fa'},
+    {label:'合计24h交易量',val:'$'+fshort(totalVol),c:'#4ade80'},
+    {label:'查询交易所数',val:sel.size,c:'#a78bfa'},
+  ].map(s=>`<div class="card flex-1 p-3"><div class="text-xl font-bold" style="color:${s.c}">${s.val}</div><div class="text-xs mt-0.5" style="color:var(--muted)">${s.label}</div></div>`).join('');
+}
+function showExStatus(state) {
+  const r = document.getElementById('exStatusRow');
+  r.style.display='flex';
+  r.innerHTML=[...sel].map(id=>{
+    const ex=EX_DEF.find(e=>e.id===id)||{name:id};
+    return `<span id="exs_${id}" class="exstatus loading"><svg class="spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/></svg>${ex.name}</span>`;
+  }).join('');
+}
+function updateExStatus(ok,err) {
+  Object.entries(ok).forEach(([id])=>{
+    const el=document.getElementById('exs_'+id);
+    if(el){el.className='exstatus ok';el.innerHTML='✓ '+EX_DEF.find(e=>e.id===id)?.name||id;}
+  });
+  Object.entries(err).forEach(([id,msg])=>{
+    const el=document.getElementById('exs_'+id);
+    if(el){el.className='exstatus err';el.title=msg;el.innerHTML='✗ '+(EX_DEF.find(e=>e.id===id)?.name||id);}
+  });
+}
+function setPlaceholder(msg) {
+  document.getElementById('tbody').innerHTML=`<tr><td colspan="9" class="text-center py-12" style="color:var(--muted)">${msg}</td></tr>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTO-REFRESH / UTILS
+// ════════════════════════════════════════════════════════════════
+function startCountdown() {
+  if(timer) clearInterval(timer);
+  let cd=300;
+  timer=setInterval(()=>{
+    cd--;
+    const el=document.getElementById('countdown');
+    if(cd<=0){el.textContent='';clearInterval(timer);run();}
+    else{const m=Math.floor(cd/60),s=String(cd%60).padStart(2,'0');el.textContent=`自动刷新 ${m}:${s}`;}
+  },1000);
+}
+const fshort = n => n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(2);
+const fv = n => n>0?'$'+fshort(n):'<span style="color:var(--muted)">—</span>';
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+function toast(msg,type='info'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.style.display='block';
+  el.style.borderColor=type==='error'?'#ef4444':type==='warn'?'#f59e0b':'#334155';
+  setTimeout(()=>el.style.display='none',4000);
+}
+
+// ════════════════════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
