@@ -215,15 +215,41 @@ async function fetchBinancePerp() {
   const d = await gj('https://fapi.binance.com/fapi/v1/exchangeInfo');
   return new Set(d.symbols.filter(s=>s.contractType==='PERPETUAL'&&s.status==='TRADING').map(s=>s.baseAsset));
 }
+
+// Extract base symbol from OKX instrument.
+// Primary: baseCcy field. Fallback: parse instId ("BTC-USDT" → "BTC").
+function okxBase(inst) {
+  const s = inst.baseCcy || inst.instId?.split('-')[0] || '';
+  return s.toUpperCase();
+}
+
 async function fetchOKXSpot() {
   const d = await gj('https://www.okx.com/api/v5/public/instruments?instType=SPOT');
-  if (d.code !== '0') throw new Error('OKX error');
-  return new Set(d.data.map(i=>i.baseCcy));
+  if (d.code !== '0') throw new Error('OKX API error: ' + (d.msg || d.code));
+  if (!Array.isArray(d.data) || d.data.length === 0)
+    throw new Error('OKX returned empty instruments list');
+  // Debug: log first item to console so we can inspect field names if needed
+  console.debug('[OKX SPOT] first item:', JSON.stringify(d.data[0]));
+  console.debug('[OKX SPOT] total instruments:', d.data.length);
+  const tokens = new Set(d.data.map(okxBase).filter(s => s.length > 0));
+  console.debug('[OKX SPOT] unique base tokens:', tokens.size);
+  return tokens;
 }
+
 async function fetchOKXPerp() {
   const d = await gj('https://www.okx.com/api/v5/public/instruments?instType=SWAP');
-  if (d.code !== '0') throw new Error('OKX error');
-  return new Set(d.data.filter(i=>['USDT','USDC'].includes(i.settleCcy)).map(i=>i.baseCcy));
+  if (d.code !== '0') throw new Error('OKX API error: ' + (d.msg || d.code));
+  if (!Array.isArray(d.data) || d.data.length === 0)
+    throw new Error('OKX returned empty swap list');
+  console.debug('[OKX PERP] first item:', JSON.stringify(d.data[0]));
+  // Filter to USDT/USDC-settled linear perps only.
+  // settleCcy is the documented field; instId format is "BTC-USDT-SWAP" as fallback.
+  const linear = d.data.filter(i => {
+    const settle = (i.settleCcy || '').toUpperCase();
+    const id = (i.instId || '').toUpperCase();
+    return ['USDT','USDC'].includes(settle) || id.includes('-USDT-') || id.includes('-USDC-');
+  });
+  return new Set(linear.map(okxBase).filter(s => s.length > 0));
 }
 async function fetchBitgetSpot() {
   const d = await gj('https://api.bitget.com/api/v2/spot/public/symbols');
