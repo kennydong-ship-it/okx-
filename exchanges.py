@@ -385,13 +385,20 @@ async def fetch_all_listings(
             token_map[sym]["exchanges"].add(ex)
             token_map[sym]["listing_types"].add(pt)
 
-    # Remove tokens already on OKX
-    missing = {
-        sym: {
-            "exchanges": sorted(info["exchanges"]),
-            "listing_types": sorted(info["listing_types"]),
-        }
-        for sym, info in token_map.items()
-        if sym not in okx_tokens
-    }
+    # Intersection: token must be listed on EVERY selected exchange
+    # that actually supports the requested product type(s).
+    relevant = [
+        ex for ex in selected
+        if any(EXCHANGES.get(ex, {}).get(pt) for pt in pts)
+    ]
+
+    missing = {}
+    for sym, info in token_map.items():
+        if sym in okx_tokens:
+            continue
+        if all(ex in info["exchanges"] for ex in relevant):
+            missing[sym] = {
+                "exchanges": sorted(info["exchanges"]),
+                "listing_types": sorted(info["listing_types"]),
+            }
     return missing
