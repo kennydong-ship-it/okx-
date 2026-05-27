@@ -114,7 +114,7 @@
     </div>
 
     <!-- Fetch button -->
-    <div class="flex items-end">
+    <div class="flex items-end gap-2">
       <button id="fetchBtn" onclick="fetchData()"
         class="px-5 py-2 rounded-lg font-semibold text-sm text-white flex items-center gap-2 transition"
         style="background:#1677ff;">
@@ -122,6 +122,12 @@
           <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/>
         </svg>
         Refresh
+      </button>
+      <button onclick="loadDemo()"
+        class="px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-1.5 transition"
+        style="background:#1e293b;border:1px solid #f59e0b;color:#f59e0b;"
+        title="Load sample data without live API access">
+        ⚡ Demo
       </button>
     </div>
   </div>
@@ -243,6 +249,24 @@ function selectPT(btn) {
   });
   btn.classList.replace('inactive','active');
   productType = btn.dataset.pt;
+}
+
+// ── Demo Mode ──────────────────────────────────────────────────────────────
+async function loadDemo() {
+  setStatus('Loading demo data…');
+  try {
+    const res = await fetch('/api/demo');
+    const data = await res.json();
+    allTokens = data.tokens || [];
+    maxVolume = Math.max(1, ...allTokens.map(t => t.volume_24h || 0));
+    buildCategoryFilter();
+    applyFilters();
+    updateStats(data);
+    document.getElementById('lastUpdate').textContent = 'Demo data (sample)';
+    showToast('⚡ Demo mode — sample data loaded', 'info');
+  } catch (e) {
+    showToast('Demo load failed: ' + e.message, 'error');
+  }
 }
 
 // ── Fetch ──────────────────────────────────────────────────────────────────
