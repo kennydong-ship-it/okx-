@@ -434,10 +434,18 @@ async function run() {
     return;
   }
 
-  // ── Step 4: Filter — keep only tokens NOT on OKX ────────────
+  // ── Step 4: Intersection + OKX filter ───────────────────────
+  // Token must be on ALL selected exchanges that support the product type,
+  // AND must not be on OKX.
+  const relevantExchanges = [...sel].filter(exId =>
+    pts.some(t => EX_FN[exId]?.[t])
+  );
+
   const missing = {};
   for (const [sym, info] of Object.entries(tokenMap)) {
-    if (!okx.has(sym)) {
+    if (okx.has(sym)) continue;
+    // Intersection: listed on every relevant selected exchange
+    if (relevantExchanges.every(exId => info.exchanges.has(exId))) {
       missing[sym] = {exchanges:[...info.exchanges], types:[...info.types]};
     }
   }
