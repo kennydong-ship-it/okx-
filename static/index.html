@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OKX Token Sourcing Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --okx-blue: #1677ff;
+    --okx-bg: #0a0e17;
+    --card-bg: #111827;
+    --border: #1f2937;
+    --muted: #6b7280;
+  }
+  body { background: var(--okx-bg); color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px;
+           font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .badge-spot   { background: #1a3a5c; color: #60a5fa; }
+  .badge-perp   { background: #2a1f4a; color: #a78bfa; }
+  .badge-kr     { background: #1a3a2a; color: #4ade80; }
+  .badge-us     { background: #3a1a1a; color: #f87171; }
+  .badge-eu     { background: #2a2a1a; color: #fbbf24; }
+  .badge-global { background: #1a2a3a; color: #67e8f9; }
+  .cat-badge    { background: #1f2d3d; color: #93c5fd; font-size: 10px; padding: 1px 6px;
+                  border-radius: 4px; white-space: nowrap; }
+  .volume-bar   { height: 4px; border-radius: 2px; background: #1677ff; transition: width .3s; }
+  .sort-btn     { cursor: pointer; user-select: none; }
+  .sort-btn:hover { color: #60a5fa; }
+  .exchange-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    border: 1.5px solid var(--border); font-size: 13px; font-weight: 500;
+    transition: all .15s;
+  }
+  .exchange-chip.active   { border-color: #1677ff; background: #1677ff22; color: #60a5fa; }
+  .exchange-chip.inactive { color: var(--muted); }
+  .exchange-chip:hover    { border-color: #60a5fa; }
+  .pt-btn { padding: 4px 18px; border-radius: 6px; font-size: 13px; font-weight: 600;
+            cursor: pointer; transition: all .15s; border: 1.5px solid transparent; }
+  .pt-btn.active   { background: #1677ff; color: #fff; border-color: #1677ff; }
+  .pt-btn.inactive { color: var(--muted); border-color: var(--border); background: transparent; }
+  .pt-btn:hover    { border-color: #60a5fa; }
+  table { border-collapse: collapse; width: 100%; }
+  thead th { position: sticky; top: 0; background: #0f172a; z-index: 10;
+             padding: 10px 12px; font-size: 12px; color: var(--muted);
+             text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  tbody tr { border-top: 1px solid var(--border); }
+  tbody tr:hover { background: #ffffff07; }
+  tbody td { padding: 10px 12px; vertical-align: middle; font-size: 13px; }
+  .spin { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .green { color: #4ade80; }
+  .red   { color: #f87171; }
+  .num   { font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  #toast { position: fixed; bottom: 24px; right: 24px; padding: 10px 18px;
+           border-radius: 8px; font-size: 13px; z-index: 9999; display: none;
+           background: #1e293b; border: 1px solid #334155; }
+</style>
+</head>
+<body>
+
+<!-- ── TOPBAR ─────────────────────────────────────────────────────────────── -->
+<header class="flex items-center justify-between px-6 py-3 border-b" style="border-color:var(--border);background:#0d1420;">
+  <div class="flex items-center gap-3">
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="8" fill="#1677ff"/>
+      <text x="5" y="23" font-size="16" font-weight="900" fill="white" font-family="Arial">OK</text>
+    </svg>
+    <span class="text-white font-bold text-lg tracking-tight">Token Sourcing Dashboard</span>
+    <span class="text-xs px-2 py-0.5 rounded" style="background:#1e3a5f;color:#60a5fa;">INTERNAL</span>
+  </div>
+  <div class="flex items-center gap-4 text-xs" style="color:var(--muted);">
+    <span id="lastUpdate"></span>
+    <div id="refreshCountdown" class="flex items-center gap-1"></div>
+  </div>
+</header>
+
+<!-- ── CONTROLS ───────────────────────────────────────────────────────────── -->
+<div class="px-6 pt-5 pb-4 border-b" style="border-color:var(--border);background:#0d1420;">
+  <div class="flex flex-wrap items-start gap-6">
+
+    <!-- Exchange selector -->
+    <div>
+      <div class="text-xs font-semibold mb-2" style="color:var(--muted);">TARGET EXCHANGES <span style="color:#6366f1;">(tokens listed here but NOT on OKX)</span></div>
+      <div id="exchangeChips" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <!-- Product type -->
+    <div>
+      <div class="text-xs font-semibold mb-2" style="color:var(--muted);">PRODUCT TYPE</div>
+      <div class="flex gap-2">
+        <button class="pt-btn active" data-pt="spot"  onclick="selectPT(this)">Spot</button>
+        <button class="pt-btn inactive" data-pt="perp"  onclick="selectPT(this)">Perps</button>
+        <button class="pt-btn inactive" data-pt="both"  onclick="selectPT(this)">Both</button>
+      </div>
+    </div>
+
+    <!-- Categories toggle -->
+    <div>
+      <div class="text-xs font-semibold mb-2" style="color:var(--muted);">OPTIONS</div>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <div class="relative">
+          <input id="catToggle" type="checkbox" class="sr-only peer"/>
+          <div class="w-9 h-5 rounded-full peer-checked:bg-blue-600 transition-colors" style="background:#374151;"></div>
+          <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform peer-checked:translate-x-4"></div>
+        </div>
+        <span class="text-xs" style="color:var(--muted);">Load categories <span class="text-yellow-400">(+30s)</span></span>
+      </label>
+    </div>
+
+    <!-- Fetch button -->
+    <div class="flex items-end">
+      <button id="fetchBtn" onclick="fetchData()"
+        class="px-5 py-2 rounded-lg font-semibold text-sm text-white flex items-center gap-2 transition"
+        style="background:#1677ff;">
+        <svg id="fetchIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="flex flex-wrap items-center gap-3 mt-4">
+    <input id="searchInput" oninput="applyFilters()" placeholder="Search symbol or name…"
+      class="text-sm px-3 py-1.5 rounded-lg w-52 outline-none focus:ring-1 focus:ring-blue-500"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb;"/>
+    <input id="minVolume" oninput="applyFilters()" placeholder="Min volume ($)"
+      class="text-sm px-3 py-1.5 rounded-lg w-40 outline-none focus:ring-1 focus:ring-blue-500"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb;"/>
+    <select id="categoryFilter" onchange="applyFilters()"
+      class="text-sm px-3 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-blue-500"
+      style="background:#1e293b;border:1px solid var(--border);color:#e5e7eb;">
+      <option value="">All sectors</option>
+    </select>
+    <span id="resultCount" class="text-xs" style="color:var(--muted);"></span>
+    <div class="ml-auto flex items-center gap-2 text-xs" style="color:var(--muted);">
+      <span>Data: </span>
+      <span class="badge badge-spot">Exchange APIs</span>
+      <span class="badge badge-perp">CoinGecko</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── STATS ROW ──────────────────────────────────────────────────────────── -->
+<div id="statsRow" class="flex gap-4 px-6 py-4" style="display:none!important;"></div>
+
+<!-- ── TABLE ─────────────────────────────────────────────────────────────── -->
+<div class="px-6 pb-10">
+  <div class="card mt-4 overflow-x-auto" style="max-height:70vh;overflow-y:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th class="text-left w-8">#</th>
+          <th class="text-left sort-btn" onclick="sortBy('name')">Token ▾</th>
+          <th class="text-left">Exchanges Listed</th>
+          <th class="text-left">Type</th>
+          <th class="text-right sort-btn" onclick="sortBy('volume_24h')">24h Volume ▾</th>
+          <th class="text-right sort-btn" onclick="sortBy('market_cap')">Market Cap ▾</th>
+          <th class="text-right sort-btn" onclick="sortBy('price_change_24h')">24h Δ ▾</th>
+          <th class="text-left">Sectors</th>
+          <th class="text-left">Vol. Source</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr>
+          <td colspan="9" class="text-center py-16" style="color:var(--muted);">
+            Select exchanges and click <strong>Refresh</strong> to load data.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allTokens = [];
+let filtered = [];
+let sortKey = 'volume_24h';
+let sortAsc = false;
+let maxVolume = 1;
+let selectedExchanges = new Set(['upbit','bithumb','binance']);
+let productType = 'spot';
+let autoRefreshTimer = null;
+let countdown = 300;
+let exchanges = [];
+
+const REGION_BADGE = {
+  KR: 'badge-kr', US: 'badge-us', EU: 'badge-eu', Global: 'badge-global'
+};
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  const res = await fetch('/api/exchanges');
+  const data = await res.json();
+  exchanges = data.exchanges;
+  renderChips();
+}
+
+function renderChips() {
+  const container = document.getElementById('exchangeChips');
+  container.innerHTML = '';
+  exchanges.forEach(ex => {
+    const active = selectedExchanges.has(ex.id);
+    const chip = document.createElement('div');
+    chip.className = `exchange-chip ${active ? 'active' : 'inactive'}`;
+    chip.dataset.id = ex.id;
+    const caps = [];
+    if (ex.has_spot) caps.push('S');
+    if (ex.has_perp) caps.push('P');
+    chip.innerHTML = `
+      <span class="badge ${REGION_BADGE[ex.region] || 'badge-global'}" style="font-size:9px;padding:1px 5px;">${ex.region}</span>
+      ${ex.name}
+      <span style="font-size:10px;color:${active?'#60a5fa':'#4b5563'};">[${caps.join('/')}]</span>
+      ${ex.data_note ? '<span title="'+ex.data_note+'" style="cursor:help">⚠️</span>' : ''}
+    `;
+    chip.onclick = () => toggleExchange(ex.id);
+    container.appendChild(chip);
+  });
+}
+
+function toggleExchange(id) {
+  if (selectedExchanges.has(id)) {
+    selectedExchanges.delete(id);
+  } else {
+    selectedExchanges.add(id);
+  }
+  renderChips();
+}
+
+function selectPT(btn) {
+  document.querySelectorAll('.pt-btn').forEach(b => {
+    b.classList.replace('active','inactive');
+  });
+  btn.classList.replace('inactive','active');
+  productType = btn.dataset.pt;
+}
+
+// ── Fetch ──────────────────────────────────────────────────────────────────
+async function fetchData() {
+  if (selectedExchanges.size === 0) {
+    showToast('Select at least one exchange.', 'warn');
+    return;
+  }
+
+  const btn = document.getElementById('fetchBtn');
+  const icon = document.getElementById('fetchIcon');
+  btn.disabled = true;
+  icon.classList.add('spin');
+  setStatus('Fetching exchange listings…');
+
+  const exList = [...selectedExchanges].join(',');
+  const cats = document.getElementById('catToggle').checked;
+  const url = `/api/tokens?exchanges=${exList}&product_type=${productType}&include_categories=${cats}&limit=500`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    allTokens = data.tokens || [];
+    maxVolume = Math.max(1, ...allTokens.map(t => t.volume_24h || 0));
+    buildCategoryFilter();
+    applyFilters();
+    updateStats(data);
+    document.getElementById('lastUpdate').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+    startAutoRefresh();
+    if (allTokens.length === 0) {
+      setStatus('No tokens found — OKX already lists everything on the selected exchanges.');
+    } else {
+      setStatus('');
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+    setStatus('Error loading data. See console.');
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    icon.classList.remove('spin');
+  }
+}
+
+// ── Filters / Sort ─────────────────────────────────────────────────────────
+function applyFilters() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const minVol = parseFloat(document.getElementById('minVolume').value) || 0;
+  const cat = document.getElementById('categoryFilter').value;
+
+  filtered = allTokens.filter(t => {
+    if (q && !t.symbol.toLowerCase().includes(q) && !t.name.toLowerCase().includes(q)) return false;
+    if (minVol && (t.volume_24h || 0) < minVol) return false;
+    if (cat && !t.categories.some(c => c === cat)) return false;
+    return true;
+  });
+
+  // Sort
+  filtered.sort((a, b) => {
+    let va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+
+  document.getElementById('resultCount').textContent =
+    `${filtered.length} token${filtered.length !== 1 ? 's' : ''} found`;
+  renderTable();
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = false; }
+  applyFilters();
+}
+
+function buildCategoryFilter() {
+  const cats = new Set();
+  allTokens.forEach(t => (t.categories || []).forEach(c => cats.add(c)));
+  const sel = document.getElementById('categoryFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">All sectors</option>';
+  [...cats].sort().forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+}
+
+// ── Render Table ───────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-16" style="color:var(--muted);">
+      No tokens match the current filters.</td></tr>`;
+    return;
+  }
+
+  const rows = filtered.map((t, i) => {
+    const volPct = Math.round(((t.volume_24h || 0) / maxVolume) * 100);
+    const change = t.price_change_24h || 0;
+    const changeClass = change >= 0 ? 'green' : 'red';
+    const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+
+    const exchangeBadges = (t.exchanges || []).map(ex => {
+      const info = exchanges.find(e => e.id === ex);
+      const region = info?.region || 'Global';
+      return `<span class="badge ${REGION_BADGE[region] || 'badge-global'}" style="font-size:10px;">${info?.name || ex}</span>`;
+    }).join(' ');
+
+    const typeBadges = (t.listing_types || []).map(lt =>
+      `<span class="badge badge-${lt}" style="font-size:10px;">${lt.toUpperCase()}</span>`
+    ).join(' ');
+
+    const catBadges = (t.categories || []).slice(0, 3).map(c =>
+      `<span class="cat-badge">${c}</span>`
+    ).join(' ');
+
+    const cgLink = t.cg_id
+      ? `<a href="https://www.coingecko.com/en/coins/${t.cg_id}" target="_blank"
+           class="text-blue-400 underline hover:text-blue-300 text-xs">CoinGecko</a>`
+      : '<span style="color:var(--muted);">—</span>';
+
+    return `
+      <tr>
+        <td class="num" style="color:var(--muted);">${i + 1}</td>
+        <td>
+          <div class="flex items-center gap-2">
+            ${t.image ? `<img src="${t.image}" width="22" height="22" class="rounded-full" onerror="this.style.display='none'"/>` : '<div style="width:22px;height:22px;background:#1f2937;border-radius:50%;flex-shrink:0;"></div>'}
+            <div>
+              <div class="font-semibold text-white">${t.symbol}</div>
+              <div style="font-size:11px;color:var(--muted);">${t.name !== t.symbol ? t.name : ''}</div>
+            </div>
+          </div>
+        </td>
+        <td><div class="flex flex-wrap gap-1">${exchangeBadges}</div></td>
+        <td><div class="flex gap-1">${typeBadges}</div></td>
+        <td class="text-right">
+          <div class="num font-medium">${fmtVol(t.volume_24h)}</div>
+          <div class="mt-1"><div class="volume-bar" style="width:${volPct}%;margin-left:auto;"></div></div>
+        </td>
+        <td class="text-right num">${fmtVol(t.market_cap)}</td>
+        <td class="text-right num ${changeClass}">${t.price ? changeStr : '—'}</td>
+        <td>
+          <div class="flex flex-wrap gap-1">
+            ${catBadges || '<span style="color:var(--muted);font-size:11px;">—</span>'}
+          </div>
+        </td>
+        <td>${cgLink}</td>
+      </tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function updateStats(data) {
+  const tokens = data.tokens || [];
+  const totalVol = tokens.reduce((s, t) => s + (t.volume_24h || 0), 0);
+  const withData = tokens.filter(t => t.volume_24h > 0).length;
+
+  const stats = [
+    { label: 'Tokens Not on OKX', value: tokens.length, color: '#f59e0b' },
+    { label: 'With Volume Data', value: withData, color: '#60a5fa' },
+    { label: 'Total 24h Volume', value: '$' + fmtShort(totalVol), color: '#4ade80' },
+    { label: 'Exchanges Checked', value: data.exchanges?.length || 0, color: '#a78bfa' },
+  ];
+
+  const row = document.getElementById('statsRow');
+  row.style.display = 'flex';
+  row.innerHTML = stats.map(s => `
+    <div class="card flex-1 min-w-32 p-4">
+      <div class="text-2xl font-bold" style="color:${s.color};">${s.value}</div>
+      <div class="text-xs mt-1" style="color:var(--muted);">${s.label}</div>
+    </div>`).join('');
+}
+
+// ── Auto-refresh ───────────────────────────────────────────────────────────
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  countdown = 300;
+  autoRefreshTimer = setInterval(() => {
+    countdown--;
+    const el = document.getElementById('refreshCountdown');
+    if (countdown <= 0) {
+      el.textContent = '';
+      fetchData();
+    } else {
+      const m = Math.floor(countdown / 60);
+      const s = String(countdown % 60).padStart(2, '0');
+      el.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Auto-refresh in ${m}:${s}`;
+    }
+  }, 1000);
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function fmtVol(n) {
+  if (!n || n === 0) return '<span style="color:var(--muted);">—</span>';
+  return '$' + fmtShort(n);
+}
+
+function fmtShort(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toFixed(2);
+}
+
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.borderColor = type === 'error' ? '#ef4444' : type === 'warn' ? '#f59e0b' : '#334155';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function setStatus(msg) {
+  if (!msg) return;
+  const tbody = document.getElementById('tableBody');
+  if (allTokens.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-16" style="color:var(--muted);">${msg}</td></tr>`;
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
