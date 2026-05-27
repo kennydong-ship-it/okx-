@@ -80,8 +80,8 @@
     </div>
   </div>
 
-  <!-- Exchange status row -->
-  <div id="exStatusRow" class="flex flex-wrap gap-2 mt-3" style="display:none!important"></div>
+  <!-- Status row: OKX + exchange load results -->
+  <div id="exStatusRow" class="flex flex-wrap gap-2 mt-3" style="display:none"></div>
 
   <!-- Filters -->
   <div class="flex flex-wrap items-center gap-3 mt-3">
@@ -354,38 +354,57 @@ async function run() {
   const btn = document.getElementById('runBtn');
   const ico = document.getElementById('runIcon');
   btn.disabled = true; ico.classList.add('spin');
-
-  showExStatus('loading');
-  setPlaceholder('正在拉取交易所数据…');
+  clearExStatus();
 
   const pts = pt==='both' ? ['spot','perp'] : [pt];
 
-  // 1. Fetch OKX listings
+  // ── Step 1: OKX is the baseline — must succeed ──────────────
+  setPlaceholder('正在获取 OKX 上架数据…');
+  addExStatusChip('okx-loading', '⏳ OKX 加载中…', 'loading');
+
   let okx = new Set();
-  for (const t of pts) {
-    try { okx = new Set([...okx, ...(t==='spot' ? await fetchOKXSpot() : await fetchOKXPerp())]); }
-    catch(e) { console.warn('OKX fetch error', e); }
+  try {
+    const fetches = pts.map(t => t==='spot' ? fetchOKXSpot() : fetchOKXPerp());
+    const okxResults = await Promise.all(fetches);
+    okxResults.forEach(s => s.forEach(sym => okx.add(sym.toUpperCase())));
+  } catch(e) {
+    updateExStatusChip('okx-loading', `❌ OKX 失败: ${e.message}`, 'err');
+    setPlaceholder(`❌ 无法获取 OKX 上架数据（${e.message}）。<br>这会导致结果完全错误，因此已停止。<br>请检查网络后重试，或点击 ⚡ Demo 查看示例效果。`);
+    btn.disabled=false; ico.classList.remove('spin');
+    return;
   }
 
-  // 2. Fetch selected exchanges in parallel
+  // Guard: OKX spot normally has 400+ tokens; fewer means something is wrong
+  if (okx.size < 50) {
+    updateExStatusChip('okx-loading', `❌ OKX 数据异常（仅 ${okx.size} 个）`, 'err');
+    setPlaceholder(`❌ OKX 数据不完整，只获取到 ${okx.size} 个代币（正常应有 400+）。<br>请刷新后重试，或点击 ⚡ Demo 查看示例。`);
+    btn.disabled=false; ico.classList.remove('spin');
+    return;
+  }
+  updateExStatusChip('okx-loading', `✓ OKX ${okx.size} 个代币`, 'ok');
+
+  // ── Step 2: Fetch target exchanges in parallel ───────────────
+  setPlaceholder(`OKX 已就绪（${okx.size} 个代币）。正在获取目标交易所数据…`);
   const tasks = [];
   for (const exId of sel) {
     for (const t of pts) {
       const fn = EX_FN[exId]?.[t];
-      if (fn) tasks.push({exId, t, fn});
+      if (fn) { tasks.push({exId, t, fn}); addExStatusChip(exId, `⏳ ${EX_DEF.find(e=>e.id===exId)?.name||exId}…`, 'loading'); }
     }
   }
   const results = await Promise.allSettled(tasks.map(tk => tk.fn()));
 
-  // 3. Build token map
-  const tokenMap = {}; // sym -> {exchanges, types}
-  const exOk = {}, exErr = {};
+  // ── Step 3: Build token map ──────────────────────────────────
+  const tokenMap = {};
+  const exCounts = {}, exErr = {};
+
   results.forEach((res, i) => {
     const {exId, t} = tasks[i];
     if (res.status === 'fulfilled') {
-      exOk[exId] = true;
-      res.value.forEach(sym => {
-        const s = sym.toUpperCase();
+      const size = res.value.size;
+      exCounts[exId] = (exCounts[exId]||0) + size;
+      res.value.forEach(raw => {
+        const s = raw.toUpperCase();
         if (STABLE.has(s)) return;
         if (!tokenMap[s]) tokenMap[s] = {exchanges:new Set(), types:new Set()};
         tokenMap[s].exchanges.add(exId);
@@ -397,37 +416,60 @@ async function run() {
     }
   });
 
-  // 4. Filter out OKX tokens
-  const missing = {};
-  Object.entries(tokenMap).forEach(([sym, info]) => {
-    if (!okx.has(sym)) missing[sym] = {exchanges:[...info.exchanges], types:[...info.types]};
-  });
+  // Update per-exchange chips with counts
+  for (const exId of sel) {
+    const ex = EX_DEF.find(e=>e.id===exId);
+    const name = ex?.name || exId;
+    if (exErr[exId] && !exCounts[exId]) {
+      updateExStatusChip(exId, `✗ ${name} (失败)`, 'err');
+    } else if (exCounts[exId]) {
+      updateExStatusChip(exId, `✓ ${name} ${exCounts[exId]} 个`, 'ok');
+    }
+  }
 
-  updateExStatus(exOk, exErr);
-
-  if (Object.keys(missing).length === 0) {
-    setPlaceholder('未找到符合条件的代币（OKX 已覆盖所选交易所的全部标的）');
+  // Guard: at least one exchange must have returned data
+  if (Object.keys(tokenMap).length === 0) {
+    setPlaceholder('❌ 未能从所选交易所获取任何代币数据。<br>可能是网络问题或 CORS 限制，请刷新后重试。');
     btn.disabled=false; ico.classList.remove('spin');
     return;
   }
 
-  // 5. CoinGecko enrichment
-  setPlaceholder('正在从 CoinGecko 获取交易量和行情数据…');
+  // ── Step 4: Filter — keep only tokens NOT on OKX ────────────
+  const missing = {};
+  for (const [sym, info] of Object.entries(tokenMap)) {
+    if (!okx.has(sym)) {
+      missing[sym] = {exchanges:[...info.exchanges], types:[...info.types]};
+    }
+  }
+
+  if (Object.keys(missing).length === 0) {
+    setPlaceholder('OKX 已覆盖所选交易所的全部代币，目前无缺口。');
+    btn.disabled=false; ico.classList.remove('spin');
+    return;
+  }
+
+  // ── Step 5: CoinGecko enrichment ────────────────────────────
+  setPlaceholder(`找到 ${Object.keys(missing).length} 个代币未在 OKX 上架。正在从 CoinGecko 获取交易量数据…`);
   let symMap = {};
   try { symMap = await cgList(); } catch(e) { console.warn('CG list error',e); }
+
   const sym2id = {};
-  Object.keys(missing).forEach(sym => {
-    const ids = symMap[sym]; if(ids?.length) sym2id[sym] = bestId(sym,ids);
-  });
+  for (const sym of Object.keys(missing)) {
+    const ids = symMap[sym]; if(ids?.length) sym2id[sym] = bestId(sym, ids);
+  }
   const mdata = await cgMarkets(Object.values(sym2id));
 
-  // 6. Build rows
+  // ── Step 6: Build result rows ────────────────────────────────
   rows = Object.entries(missing).map(([sym, info]) => {
     const cid = sym2id[sym];
-    const md = cid ? mdata[cid] : null;
-    return { sym, name: md?.name||sym, img: md?.img||'', exchanges: info.exchanges, types: info.types,
-             vol: md?.vol||0, mcap: md?.mcap||0, price: md?.price||0, chg: md?.chg||0,
-             cid, cats: [] };
+    const md  = cid ? mdata[cid] : null;
+    return {
+      sym, name: md?.name||sym, img: md?.img||'',
+      exchanges: info.exchanges, types: info.types,
+      vol: md?.vol||0, mcap: md?.mcap||0,
+      price: md?.price||0, chg: md?.chg||0,
+      cid, cats: [],
+    };
   });
 
   maxVol = Math.max(1, ...rows.map(r=>r.vol));
@@ -557,23 +599,27 @@ function updateStats() {
     {label:'查询交易所数',val:sel.size,c:'#a78bfa'},
   ].map(s=>`<div class="card flex-1 p-3"><div class="text-xl font-bold" style="color:${s.c}">${s.val}</div><div class="text-xs mt-0.5" style="color:var(--muted)">${s.label}</div></div>`).join('');
 }
-function showExStatus(state) {
+function clearExStatus() {
   const r = document.getElementById('exStatusRow');
-  r.style.display='flex';
-  r.innerHTML=[...sel].map(id=>{
-    const ex=EX_DEF.find(e=>e.id===id)||{name:id};
-    return `<span id="exs_${id}" class="exstatus loading"><svg class="spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/></svg>${ex.name}</span>`;
-  }).join('');
+  r.style.display = 'none';
+  r.innerHTML = '';
 }
-function updateExStatus(ok,err) {
-  Object.entries(ok).forEach(([id])=>{
-    const el=document.getElementById('exs_'+id);
-    if(el){el.className='exstatus ok';el.innerHTML='✓ '+EX_DEF.find(e=>e.id===id)?.name||id;}
-  });
-  Object.entries(err).forEach(([id,msg])=>{
-    const el=document.getElementById('exs_'+id);
-    if(el){el.className='exstatus err';el.title=msg;el.innerHTML='✗ '+(EX_DEF.find(e=>e.id===id)?.name||id);}
-  });
+function addExStatusChip(id, label, state) {
+  const r = document.getElementById('exStatusRow');
+  r.style.display = 'flex';
+  // Remove existing chip for this id first
+  const old = document.getElementById('exs_' + id);
+  if (old) old.remove();
+  const span = document.createElement('span');
+  span.id = 'exs_' + id;
+  span.className = 'exstatus ' + state;
+  span.textContent = label;
+  r.appendChild(span);
+}
+function updateExStatusChip(id, label, state) {
+  const el = document.getElementById('exs_' + id);
+  if (el) { el.className = 'exstatus ' + state; el.textContent = label; }
+  else addExStatusChip(id, label, state);
 }
 function setPlaceholder(msg) {
   document.getElementById('tbody').innerHTML=`<tr><td colspan="9" class="text-center py-12" style="color:var(--muted)">${msg}</td></tr>`;
